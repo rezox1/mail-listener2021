@@ -25,17 +25,17 @@ function MailListener(options) {
     this.attachments = options.attachments || false;
     this.attachmentOptions.directory = (this.attachmentOptions.directory ? this.attachmentOptions.directory : '');
     this.imap = new Imap({
-            xoauth2: options.xoauth2,
-            user: options.username,
-            password: options.password,
-            host: options.host,
-            port: options.port,
-            tls: options.tls,
-            tlsOptions: options.tlsOptions || {},
-            connTimeout: options.connTimeout || null,
-            authTimeout: options.authTimeout || null,
-            debug: options.debug || null
-        });
+        xoauth2: options.xoauth2,
+        user: options.username,
+        password: options.password,
+        host: options.host,
+        port: options.port,
+        tls: options.tls,
+        tlsOptions: options.tlsOptions || {},
+        connTimeout: options.connTimeout || null,
+        authTimeout: options.authTimeout || null,
+        debug: options.debug || null
+    });
 
     this.imap.once('ready', imapReady.bind(this));
     this.imap.once('close', imapClose.bind(this));
@@ -89,9 +89,9 @@ function parseUnread() {
         } else if (results.length > 0) {
             async.each(results, function (result, callback) {
                 var f = self.imap.fetch(result, {
-                        bodies: '',
-                        markSeen: self.markSeen
-                    });
+                    bodies: '',
+                    markSeen: self.markSeen
+                });
                 f.on('message', function (msg, seqno) {
                     var parser = new MailParser(self.mailParserOptions);
                     var attributes = null;
@@ -122,15 +122,22 @@ function parseUnread() {
                     parser.on("attachment", function (attachment) {
                         self.emit('attachment', attachment);
                     });
+                    //when all attributes and bodies have been parsed
+                    var parsingDone = new Promise(function(resolve, reject){
+                        msg.on("end", function() {
+                            resolve();
+                        });
+                    })
                     msg.on('body', function (stream, info) {
                         stream.on('data', function (chunk) {
                             emlbuffer = Buffer.concat([emlbuffer, chunk]);
                         });
                         stream.once('end', function () {
-                            //when all attributes and bodies have been parsed
-                            msg.on("end", function() {
+                            parsingDone.then(function(){
                                 parser.write(emlbuffer);
                                 parser.end();
+                            }).catch(function(err){
+                                self.emit('error', err);
                             });
                         });
                     });
