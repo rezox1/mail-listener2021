@@ -9,6 +9,8 @@ const async = require("async");
 module.exports = MailListener;
 
 function MailListener(options) {
+	this.haveNewEmails = false;
+	this.parsingUnread = false;
 	this.markSeen = !!options.markSeen;
 	this.mailbox = options.mailbox || "INBOX";
 	if ("string" === typeof options.searchFilter) {
@@ -17,13 +19,16 @@ function MailListener(options) {
 		this.searchFilter = options.searchFilter || ["UNSEEN"];
 	}
 	this.fetchUnreadOnStart = !!options.fetchUnreadOnStart;
+
 	this.mailParserOptions = options.mailParserOptions || {};
 	if (options.attachments && options.attachmentOptions && options.attachmentOptions.stream) {
 		this.mailParserOptions.streamAttachments = true;
 	}
+
 	this.attachmentOptions = options.attachmentOptions || {};
 	this.attachments = options.attachments || false;
 	this.attachmentOptions.directory = (this.attachmentOptions.directory ? this.attachmentOptions.directory : "");
+
 	this.imap = new Imap({
 		"xoauth2": options.xoauth2,
 		"user": options.username,
@@ -36,7 +41,6 @@ function MailListener(options) {
 		"authTimeout": options.authTimeout || null,
 		"debug": options.debug || null
 	});
-
 	this.imap.once("ready", imapReady.bind(this));
 	this.imap.once("close", imapClose.bind(this));
 	this.imap.on("error", imapError.bind(this));
@@ -59,10 +63,11 @@ function imapReady() {
 			self.emit("error", err);
 		} else {
 			self.emit("server:connected");
-			if (self.fetchUnreadOnStart) {
-				parseUnread.call(self);
-			}
+
 			let listener = imapMail.bind(self);
+			if (self.fetchUnreadOnStart) {
+				listener();
+			}
 			self.imap.on("mail", listener);
 			self.imap.on("update", listener);
 		}
@@ -78,7 +83,12 @@ function imapError(err) {
 }
 
 function imapMail() {
-	parseUnread.call(this);
+	if (!this.haveNewEmails && !this.parsingUnread) {
+		parseUnread.call(this);
+		this.parsingUnread = true;
+	} else if (this.parsingUnread) {
+		this.haveNewEmails = true;
+	}
 }
 
 function parseUnread() {
@@ -87,6 +97,12 @@ function parseUnread() {
 		if (err) {
 			self.emit("error", err);
 		} else if (results.length > 0) {
+			self.imap.setFlags(results, ["\\Seen"], function(err) {
+				if (err) {
+					self.emit("error", err);
+				}
+			});
+
 			async.each(results, function(result, callback) {
 				let f = self.imap.fetch(result, {
 					"bodies": "",
@@ -120,6 +136,8 @@ function parseUnread() {
 							});
 						} else {
 							self.emit("mail", mail, seqno, attributes);
+
+							callback();
 						}
 					});
 					parser.on("attachment", function(attachment) {
@@ -155,7 +173,23 @@ function parseUnread() {
 				if (err) {
 					self.emit("error", err);
 				}
+
+				if (self.haveNewEmails) {
+					self.haveNewEmails = false;
+
+					parseUnread.call(self);
+				} else {
+					self.parsingUnread = false;
+				}
 			});
+		} else {
+			if (self.haveNewEmails) {
+				self.haveNewEmails = false;
+
+				parseUnread.call(self);
+			} else {
+				self.parsingUnread = false;
+			}
 		}
 	});
 }
