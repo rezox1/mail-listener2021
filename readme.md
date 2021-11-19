@@ -18,7 +18,7 @@ JavaScript Code:
 
 ```javascript
 
-const MailListener = require("mail-listener2");
+const MailListener = require("mail-listener2021");
 
 const mailListener = new MailListener({
 	"username": "imap-username",
